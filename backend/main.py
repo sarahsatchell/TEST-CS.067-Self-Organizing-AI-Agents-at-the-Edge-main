@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import websockets
+from aiohttp import web
 import NodeClass
 from spawner import spawn_agents
 
@@ -185,6 +186,12 @@ async def run_live_simulation(maze, start, end, websocket):
         "agent_stats": agent_stats
     }))
 
+# HTTP health check (for Render)
+# -------------------------
+async def health_check(request):
+    return web.Response(text="OK", status=200)
+
+
 # -------------------------
 # Main entry point
 # -------------------------
@@ -193,14 +200,31 @@ async def main():
     event_loop = asyncio.get_running_loop()  
 
     port = int(os.environ.get("PORT", "8080"))
-    ws_server = await websockets.serve(handler, "0.0.0.0", port)
+    
+    # Create HTTP app for health checks
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_head('/', health_check)
+    
+    # Create HTTP runner
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    # Start WebSocket server on a different handle
+    ws_server = await websockets.serve(handler, "0.0.0.0", port, subprotocols=["chat"])
     udp_listener = asyncio.create_task(node.web_listen())
 
-    print(f"🚀 WebSocket server running on ws://localhost:{port}")
+    print(f"🚀 HTTP health check + WebSocket server running on port {port}")
 
-    await asyncio.gather(
-        ws_server.wait_closed(),
-        udp_listener
+    try:
+        await asyncio.gather(
+            ws_server.wait_closed(),
+            udp_listener
+        )
+    finally:
+        await runner.cleanup(    udp_listener
     )
 
 
