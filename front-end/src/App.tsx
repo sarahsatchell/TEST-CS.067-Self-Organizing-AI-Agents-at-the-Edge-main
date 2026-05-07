@@ -34,11 +34,24 @@ function App() {
   const wsUrl = import.meta.env.VITE_WEBSOCKET_URL;
 
   useEffect(() => {
+    if (!wsUrl) {
+      console.error("VITE_WEBSOCKET_URL is not set. Env vars:", import.meta.env);
+      return;
+    }
+
+    console.log("Connecting to WebSocket:", wsUrl);
     ws.current = new WebSocket(wsUrl);
     
-    ws.current.onopen = () => console.log("WebSocket connected");
-    ws.current.onclose = () => console.log("WebSocket disconnected");
-    ws.current.onerror = (err) => console.error("WebSocket error", err);
+    ws.current.onopen = () => {
+      console.log("✅ WebSocket connected to:", wsUrl);
+    };
+    ws.current.onclose = () => {
+      console.log("❌ WebSocket disconnected");
+    };
+    ws.current.onerror = (err) => {
+      console.error("❌ WebSocket error:", err);
+      console.error("WebSocket readyState:", ws.current?.readyState);
+    };
     
     ws.current.onmessage = (event) => {
       console.log("Received from backend:", event.data);
