@@ -2,6 +2,7 @@ services:
   - type: web
     name: self-organizing-ai-backend
     env: python
+    rootDir: .
     plan: free
     buildCommand: pip install -r backend/requirements.txt
     startCommand: python3 backend/main.py
