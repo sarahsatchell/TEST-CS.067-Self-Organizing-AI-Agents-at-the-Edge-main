@@ -201,8 +201,7 @@ async def main():
 
     # Single aiohttp app handles HTTP health checks AND WebSocket upgrades
     app = web.Application()
-    app.router.add_get("/", health_check)
-    app.router.add_route("HEAD", "/", health_check)
+    app.router.add_get("/", health_check)      # HEAD is handled automatically
     app.router.add_get("/ws", websocket_handler)
 
     udp_listener = asyncio.create_task(node.web_listen())
