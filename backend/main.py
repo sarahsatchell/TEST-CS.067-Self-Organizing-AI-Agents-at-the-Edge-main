@@ -28,13 +28,11 @@ async def websocket_handler(request):
                 start = data.get("start")
                 end = data.get("end")
 
-                # Acknowledge receipt to the frontend
                 await ws.send_str(json.dumps({
                     "type": "ack",
                     "status": "Maze received. Starting swarm simulation..."
                 }))
 
-                # Trigger the live simulation directly
                 asyncio.create_task(run_live_simulation(maze, start, end, ws))
 
             elif msg.type == aiohttp.WSMsgType.ERROR:
@@ -57,12 +55,7 @@ node = NodeClass.Node(9000, "Node1", 0)
 
 def on_udp_message(msg, addr):
     print(f"Node received message: {msg} from {addr}")
-
-    # Forward Node message to all WebSocket clients
-    asyncio.run_coroutine_threadsafe(
-        broadcast(msg),
-        event_loop
-    )
+    asyncio.run_coroutine_threadsafe(broadcast(msg), event_loop)
 
 
 node.on_message = on_udp_message
@@ -78,13 +71,9 @@ async def broadcast(message):
     try:
         payload = json.loads(message)
     except Exception:
-        payload = {
-            "type": "node_message",
-            "payload": message
-        }
+        payload = {"type": "node_message", "payload": message}
 
     msg_str = json.dumps(payload)
-
     await asyncio.gather(
         *(ws.send_str(msg_str) for ws in connected_clients),
         return_exceptions=True
@@ -92,15 +81,13 @@ async def broadcast(message):
 
 
 # -------------------------
-# Simulation logic (Node → Python → Frontend)
+# Simulation logic
 # -------------------------
 async def run_live_simulation(maze, start, end, ws):
     agents = spawn_agents(maze, tuple(start))
 
-    # Start UDP listeners for all agents
     listener_tasks = [asyncio.create_task(agent.web_listen()) for agent in agents]
 
-    # Register agents for frontend agent list
     for agent in agents:
         await ws.send_str(json.dumps({
             "type": "agent_registered",
@@ -146,16 +133,15 @@ async def run_live_simulation(maze, start, end, ws):
         total_open = sum(1 for row in maze for cell in row if cell == 0)
         explored_pct = (len(explored) / total_open * 100) if total_open > 0 else 0
 
-        payload = {
+        await ws.send_str(json.dumps({
             "type": "tick_update",
             "tick": tick,
             "goal_reached": goal_reached,
             "explored_pct": round(explored_pct, 1),
             "discovered_cell_positions": [list(cell) for cell in explored],
             "agents": agent_data
-        }
+        }))
 
-        await ws.send_str(json.dumps(payload))
         await asyncio.sleep(0.1)
 
     # Final summary
@@ -166,10 +152,9 @@ async def run_live_simulation(maze, start, end, ws):
     total_open = sum(1 for row in maze for cell in row if cell == 0)
     explored_pct = (len(explored) / total_open * 100) if total_open > 0 else 0
 
-    goal_tuple = tuple(end)
     agent_stats = []
     for agent in agents:
-        stats = agent.get_agent_stats(goal_tuple, maze, explored)
+        stats = agent.get_agent_stats(tuple(end), maze, explored)
         agent_stats.append(stats)
 
     await ws.send_str(json.dumps({
@@ -184,7 +169,7 @@ async def run_live_simulation(maze, start, end, ws):
 
 
 # -------------------------
-# HTTP health check (for Render — handles GET and HEAD)
+# HTTP health check (HEAD is handled automatically by aiohttp for GET routes)
 # -------------------------
 async def health_check(request):
     return web.Response(text="OK", status=200)
@@ -197,27 +182,26 @@ async def main():
     global event_loop
     event_loop = asyncio.get_running_loop()
 
-    port = int(os.environ.get("PORT", "8080"))
+    port = int(os.environ.get("PORT", "10000"))
 
-    # Single aiohttp app handles HTTP health checks AND WebSocket upgrades
     app = web.Application()
-    app.router.add_get("/", health_check)      # HEAD is handled automatically
+    app.router.add_get("/", health_check)
     app.router.add_get("/ws", websocket_handler)
-
-    udp_listener = asyncio.create_task(node.web_listen())
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
+    udp_listener = asyncio.create_task(node.web_listen())
+
     print(f"🚀 Server running on port {port}")
-    print(f"   HTTP health check → GET/HEAD /")
-    print(f"   WebSocket          → GET /ws")
+    print(f"   Health check → GET /")
+    print(f"   WebSocket    → GET /ws")
 
     try:
         await asyncio.gather(
-            asyncio.Event().wait(),  # keep alive forever
+            asyncio.Event().wait(),
             udp_listener
         )
     finally:
